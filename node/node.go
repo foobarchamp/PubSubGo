@@ -2,6 +2,7 @@ package node
 
 import (
 	"math/rand/v2"
+	"runtime"
 )
 
 type MsgType int
@@ -11,20 +12,11 @@ const (
 	subscribe
 	unsubscribe
 	Number
-	TypeResponse
 )
 
 const (
 	BUFF_LEN  = 1_000_000
 	MSG_COUNT = 10_000_000
-)
-
-var (
-//	Msgpool = sync.Pool{
-//		New: func() interface{} {
-//			return new(Message)
-//		},
-//	}
 )
 
 type Message struct {
@@ -38,6 +30,14 @@ type Node struct {
 	Subscribers map[int]*Node
 	Subscribed  map[int]*Node
 	inQ         chan *Message
+}
+
+func (main *Node) Suspend() {
+	main.Signal(&Message{Type: Closing, Payload: 1})
+	runtime.Gosched()
+	for _, subd := range main.Subscribed {
+		main.RequestUnSubscriptionFrom(subd)
+	}
 }
 
 func (main *Node) addSubscriber(subscriber *Node) {
@@ -88,6 +88,8 @@ type PubSubNode interface {
 	GetNode() *Node
 	NextMessage(msg *Message)
 	RequestSubscriptionTo(main PubSubNode)
+	RequestUnSubscriptionFrom(main *Node)
+	Suspend()
 }
 
 func HandleInQ(psnode PubSubNode) {
@@ -97,6 +99,8 @@ func HandleInQ(psnode PubSubNode) {
 			psnode.GetNode().addSubscriber(msg.Payload.(*Node))
 		case unsubscribe:
 			psnode.GetNode().removeSubscriber(msg.Payload.(*Node))
+		case Closing:
+			psnode.Suspend()
 		default:
 			psnode.NextMessage(msg)
 		}

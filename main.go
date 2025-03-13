@@ -27,16 +27,16 @@ func (d *Doubler) NextMessage(msg *node.Message) {
 	case node.Number:
 		d.count++
 		d.Signal(&node.Message{Type: msg.Type, Payload: 2 * msg.Payload.(int)})
-	case node.Closing:
-		diff := time.Since(now).Milliseconds()
-		d.Signal(&node.Message{Type: node.Closing, Payload: 1})
-		for _, subd := range d.Subscribed {
-			d.RequestUnSubscriptionFrom(subd)
-		}
-		fmt.Printf("%s: Time taken to process %d messages: %v\n", d.Name, d.count, diff)
-		wg.Done()
+	default:
+		panic(fmt.Sprintf("unknown message %v", msg))
 	}
+}
 
+func (d *Doubler) Suspend() {
+	diff := time.Since(now).Milliseconds()
+	d.GetNode().Suspend()
+	fmt.Println("processed", d.count, "message in", diff, "ms")
+	wg.Done()
 }
 
 type NSP struct {
@@ -59,14 +59,11 @@ func (nsp *NSP) start() {
 			Payload: i,
 		})
 	}
-	nsp.Signal(&node.Message{
-		Type: node.Closing,
-	})
+	nsp.Suspend()
 	fmt.Println("Finished", nsp.Name)
 }
 
 func main() {
-	wg = &sync.WaitGroup{}
 	nsp := NewNSP("NSP")
 	node.Run(nsp)
 	d1 := NewDoubler("D1")
@@ -79,9 +76,10 @@ func main() {
 	node.Run(d3)
 	d3.RequestSubscriptionTo(d1)
 	d3.RequestSubscriptionTo(d2)
+	wg = &sync.WaitGroup{}
+	wg.Add(4)
 	time.Sleep(1 * time.Second)
 	now = time.Now()
-	wg.Add(4)
 	nsp.start()
 	wg.Wait()
 }
